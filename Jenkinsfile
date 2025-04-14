@@ -7,9 +7,7 @@ pipeline {
     }
 
     environment {
-        AWS_ACCESS_KEY_ID     = credentials('aws-access-key-id')
-        AWS_SECRET_ACCESS_KEY = credentials('aws-secret-access-key')
-        AWS_DEFAULT_REGION    = 'us-east-2'
+        AWS_DEFAULT_REGION = 'us-east-2'
     }
 
     stages {
@@ -18,36 +16,51 @@ pipeline {
                 git branch: 'main', url: 'https://github.com/KehindeoIyanda/Terraform-jenkins-pipeline.git'
             }
         }
+
         stage('Terraform init') {
             steps {
-                sh 'terraform init'
-            }
-        }
-        stage('Plan') {
-            steps {
-                sh 'terraform plan -out tfplan'
-                sh 'terraform show -no-color tfplan > tfplan.txt'
-            }
-        }
-        stage('Apply / Destroy') {
-            steps {
-                script {
-                    if (params.action == 'apply') {
-                        if (!params.autoApprove) {
-                            def plan = readFile 'tfplan.txt'
-                            input message: "Do you want to apply the plan?",
-                            parameters: [text(name: 'Plan', description: 'Please review the plan', defaultValue: plan)]
-                        }
-
-                        sh 'terraform ${action} -input=false tfplan'
-                    } else if (params.action == 'destroy') {
-                        sh 'terraform ${action} --auto-approve'
-                    } else {
-                        error "Invalid action selected. Please choose either 'apply' or 'destroy'."
-                    }
+                withCredentials([
+                    string(credentialsId: 'aws-access-key-id', variable: 'AWS_ACCESS_KEY_ID'),
+                    string(credentialsId: 'aws-secret-access-key', variable: 'AWS_SECRET_ACCESS_KEY')
+                ]) {
+                    sh 'terraform init'
                 }
             }
         }
 
+        stage('Plan') {
+            steps {
+                withCredentials([
+                    string(credentialsId: 'aws-access-key-id', variable: 'AWS_ACCESS_KEY_ID'),
+                    string(credentialsId: 'aws-secret-access-key', variable: 'AWS_SECRET_ACCESS_KEY')
+                ]) {
+                    sh 'terraform plan -out=tfplan'
+                    sh 'terraform show -no-color tfplan > tfplan.txt'
+                }
+            }
+        }
+
+        stage('Apply / Destroy') {
+            steps {
+                withCredentials([
+                    string(credentialsId: 'aws-access-key-id', variable: 'AWS_ACCESS_KEY_ID'),
+                    string(credentialsId: 'aws-secret-access-key', variable: 'AWS_SECRET_ACCESS_KEY')
+                ]) {
+                    script {
+                        if (params.action == 'apply') {
+                            if (!params.autoApprove) {
+                                def plan = readFile 'tfplan.txt'
+                                input message: "Do you want to apply the plan?",
+                                parameters: [text(name: 'Plan', description: 'Please review the plan', defaultValue: plan)]
+                            }
+
+                            sh "terraform apply -input=false tfplan"
+                        } else {
+                            sh "terraform destroy --auto-approve"
+                        }
+                    }
+                }
+            }
+        }
     }
 }
